@@ -17,7 +17,11 @@ let nextPtId     = 1005;
 let nextApptId   = 4;
 let nextBillId   = 4;
 
-const TODAY = new Date().toISOString().split('T')[0];
+function getLocalToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+const TODAY = getLocalToday();
 const AVATAR_CLASSES = ['av-blue','av-green','av-amber','av-pink','av-purple'];
 let admChart, deptChart;
 
@@ -73,6 +77,8 @@ function openPatientModal() {
   document.getElementById('pt-edit-id').value   = '';
   document.getElementById('pt-modal-title').textContent = 'Add Patient';
   ['pt-name','pt-dob','pt-phone','pt-email'].forEach(id => document.getElementById(id).value = '');
+  const dobEl = document.getElementById('pt-dob');
+  if (dobEl) { dobEl.max = getLocalToday(); dobEl.min = '1900-01-01'; }
   document.getElementById('pt-blood').value  = 'A+';
   document.getElementById('pt-status').value = 'Active';
   populateDoctorSelect('pt-doctor');
@@ -80,6 +86,8 @@ function openPatientModal() {
 }
 function openApptModal() {
   ['ap-date','ap-time','ap-reason'].forEach(id => document.getElementById(id).value = '');
+  const apDateEl = document.getElementById('ap-date');
+  if (apDateEl) apDateEl.min = getLocalToday();
   populatePatientSelect('ap-patient');
   populateDoctorSelect('ap-doctor');
   openModal('appt-modal');
@@ -120,7 +128,18 @@ function avatarEl(name, i) {
 }
 function calcAge(dob) {
   if (!dob) return '—';
-  return new Date().getFullYear() - new Date(dob).getFullYear();
+  const today = getLocalToday();
+  if (dob > today) return '—';
+  const [by, bm, bd] = dob.split('-').map(Number);
+  if (!by || !bm || !bd) return '—';
+  const now = new Date();
+  let years = now.getFullYear() - by;
+  let months = (now.getMonth() + 1) - bm;
+  if (now.getDate() < bd) months--;
+  if (months < 0) { years--; months += 12; }
+  if (years < 0) return '—';
+  if (years === 0) return months <= 0 ? 'Newborn' : `${months} mos`;
+  return `${years} yrs`;
 }
 function getDoctorName(id) { const d = doctors.find(x => x.id == id); return d ? d.name : '—'; }
 function getPatientName(id) { const p = patients.find(x => x.id === id); return p ? p.name : '—'; }
@@ -149,13 +168,36 @@ function showToast(msg) {
 
 // ── CRUD: Patients ───────────────────────────────────────────────────
 function savePatient() {
-  const name = document.getElementById('pt-name').value.trim();
-  if (!name) { alert('Patient name is required.'); return; }
+  const name = document.getElementById('pt-name').value.replace(/\s+/g, ' ').trim();
+  if (name.length < 2 || !/[a-zA-Z]/.test(name)) {
+    showToast('Please enter a valid patient full name (at least 2 letters).');
+    return;
+  }
   const editId   = document.getElementById('pt-edit-id').value;
   const dob      = document.getElementById('pt-dob').value;
+  const today    = getLocalToday();
+  if (!dob) {
+    showToast('Date of birth is required.');
+    return;
+  }
+  if (dob > today || dob < '1900-01-01') {
+    showToast(`Date of birth must be between 1900-01-01 and ${today}.`);
+    return;
+  }
   const blood    = document.getElementById('pt-blood').value;
-  const phone    = document.getElementById('pt-phone').value.trim();
+  const phone    = document.getElementById('pt-phone').value.replace(/\s+/g, ' ').trim();
+  if (phone) {
+    const digits = phone.replace(/\D/g, '');
+    if (!/^[+]?[0-9\s\-()]+$/.test(phone) || digits.length < 7 || digits.length > 15) {
+      showToast('Please enter a valid phone number (7–15 digits).');
+      return;
+    }
+  }
   const email    = document.getElementById('pt-email').value.trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    showToast('Please enter a valid email address.');
+    return;
+  }
   const doctorId = parseInt(document.getElementById('pt-doctor').value);
   const status   = document.getElementById('pt-status').value;
 
@@ -178,6 +220,8 @@ function editPatient(id) {
   const p = patients.find(x => x.id === id);
   if (!p) return;
   populateDoctorSelect('pt-doctor');
+  const dobEl = document.getElementById('pt-dob');
+  if (dobEl) { dobEl.max = getLocalToday(); dobEl.min = '1900-01-01'; }
   document.getElementById('pt-edit-id').value   = p.id;
   document.getElementById('pt-modal-title').textContent = 'Edit Patient';
   document.getElementById('pt-name').value   = p.name;
@@ -228,7 +272,11 @@ function saveAppt() {
   const date   = document.getElementById('ap-date').value;
   const time   = document.getElementById('ap-time').value;
   const reason = document.getElementById('ap-reason').value.trim();
-  if (!pid || !date || !time) { alert('Patient, date and time are required.'); return; }
+  const today  = getLocalToday();
+  if (!pid || !date || !time) { showToast('Patient, date, and time are required.'); return; }
+  if (date < today) { showToast('Appointment date cannot be in the past.'); return; }
+  const clash = appointments.find(a => a.doctorId === did && a.date === date && a.time === time && a.status === 'Scheduled');
+  if (clash) { showToast(`${getDoctorName(did)} already has a scheduled appointment at ${time} on ${date}.`); return; }
   appointments.push({ id: nextApptId++, patientId: pid, doctorId: did, date, time, reason, status: 'Scheduled' });
   addActivity('Appointment booked: ' + getPatientName(pid));
   showToast('Appointment booked');
@@ -267,11 +315,25 @@ function renderAppts() {
 
 // ── CRUD: Doctors ─────────────────────────────────────────────────────
 function saveDoctor() {
-  const name = document.getElementById('dr-name').value.trim();
-  const spec = document.getElementById('dr-spec').value.trim();
-  if (!name || !spec) { alert('Name and specialty are required.'); return; }
-  const phone  = document.getElementById('dr-phone').value.trim();
+  const name = document.getElementById('dr-name').value.replace(/\s+/g, ' ').trim();
+  const spec = document.getElementById('dr-spec').value.replace(/\s+/g, ' ').trim();
+  if (name.length < 2 || !/[a-zA-Z]/.test(name) || spec.length < 2) {
+    showToast('Valid doctor name and specialty are required.');
+    return;
+  }
+  const phone  = document.getElementById('dr-phone').value.replace(/\s+/g, ' ').trim();
+  if (phone) {
+    const digits = phone.replace(/\D/g, '');
+    if (!/^[+]?[0-9\s\-()]+$/.test(phone) || digits.length < 7 || digits.length > 15) {
+      showToast('Please enter a valid phone number (7–15 digits).');
+      return;
+    }
+  }
   const email  = document.getElementById('dr-email').value.trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    showToast('Please enter a valid email address.');
+    return;
+  }
   const onDuty = document.getElementById('dr-duty').value === 'true';
   doctors.push({ id: doctors.length + 1, name, specialty: spec, phone, email, onDuty });
   addActivity('Doctor added: ' + name);
@@ -310,7 +372,10 @@ function saveBill() {
   const pid    = document.getElementById('bl-patient').value;
   const amount = parseFloat(document.getElementById('bl-amount').value);
   const type   = document.getElementById('bl-type').value;
-  if (!pid || !amount || amount <= 0) { alert('Patient and a valid amount are required.'); return; }
+  if (!pid || isNaN(amount) || amount <= 0 || amount > 10000000) {
+    showToast('Please select a patient and enter a valid bill amount.');
+    return;
+  }
   bills.push({ id: 'B-00' + nextBillId++, patientId: pid, amount, type, status: 'Pending', date: TODAY });
   addActivity('Bill created: ₹' + amount.toLocaleString('en-IN') + ' for ' + getPatientName(pid));
   showToast('Bill created');
@@ -364,23 +429,23 @@ function renderDashboard() {
   const todayAppts = appointments.filter(a => a.date === TODAY);
   const ta = document.getElementById('today-appts');
   ta.innerHTML = todayAppts.length
-    ? todayAppts.map(a => `
+      ? todayAppts.map(a => `
         <div class="appt-item">
           <div class="appt-time">${a.time}</div>
           <div style="flex:1"><div class="appt-name">${getPatientName(a.patientId)}</div><div class="appt-doctor">${getDoctorName(a.doctorId)}</div></div>
           ${statusBadge(a.status)}
         </div>`).join('')
-    : '<p class="empty">No appointments today</p>';
+      : '<p class="empty">No appointments today</p>';
 
   // Activity log
   const al = document.getElementById('activity-log');
   al.innerHTML = activityLog.length
-    ? activityLog.map(a => `
+      ? activityLog.map(a => `
         <div class="appt-item">
           <div class="appt-time">${a.time}</div>
           <div class="appt-doctor" style="font-size:12px">${a.msg}</div>
         </div>`).join('')
-    : '<p class="empty">No recent activity</p>';
+      : '<p class="empty">No recent activity</p>';
 
   // Admissions bar chart
   const months  = ['Jan','Feb','Mar','Apr','May','Jun'].slice(0, 6);
@@ -388,7 +453,7 @@ function renderDashboard() {
   if (admChart) admChart.destroy();
   admChart = new Chart(document.getElementById('admChart'), {
     type: 'bar',
-    data: { labels: months, datasets: [{ label: 'Admissions', data: admData, backgroundColor: '#2b6cb0', borderRadius: 5, borderSkipped: false }] },
+    data: { labels: months, datasets: [{ label: 'Admissions', data: admData, backgroundColor: '#0d9488', borderRadius: 6, borderSkipped: false }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 10 } } } }
   });
 
@@ -399,17 +464,26 @@ function renderDashboard() {
     if (d) depts[d.specialty] = (depts[d.specialty] || 0) + 1;
   });
   const dkeys = Object.keys(depts);
-  const COLORS = ['#2b6cb0','#276749','#744210','#702459','#553c9a'];
+  const COLORS = ['#0d9488','#2563eb','#16a34a','#d97706','#7c3aed'];
   if (deptChart) deptChart.destroy();
   deptChart = new Chart(document.getElementById('deptChart'), {
     type: 'doughnut',
-    data: { labels: dkeys, datasets: [{ data: dkeys.map(k => depts[k]), backgroundColor: COLORS.slice(0, dkeys.length), borderWidth: 2, borderColor: '#fff' }] },
-    options: { responsive: true, maintainAspectRatio: false, cutout: '62%', plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 10, padding: 8 } } } }
+    data: { labels: dkeys, datasets: [{ data: dkeys.map(k => depts[k]), backgroundColor: COLORS.slice(0, dkeys.length), borderWidth: 2, borderColor: 'transparent' }] },
+    options: { responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 10, padding: 8 } } } }
   });
+}
+
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', cur);
+  localStorage.setItem('medcare-theme', cur);
+  showToast('Switched to ' + cur + ' theme');
 }
 
 // ── Init ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  const savedTheme = localStorage.getItem('medcare-theme');
+  if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
   document.getElementById('today-label').textContent = new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   initData();
   renderDashboard();
