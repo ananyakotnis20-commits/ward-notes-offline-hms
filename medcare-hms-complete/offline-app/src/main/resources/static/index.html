@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ward Notes</title>
+<link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.svg"><meta name="theme-color" content="#0b6e5f">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header id="strip" class="off">
+  <div><h1>Ward Notes</h1><p>Patient records that keep working without internet.</p></div>
+  <div class="state">
+    <span id="st">● Offline</span>
+    <span id="pend">0 pending</span>
+    <button id="sync" type="button">Sync now</button>
+    <label><input type="checkbox" id="off"> Simulate offline</label>
+  </div>
+</header>
+<main>
+  <div class="bar"><input id="q" type="search" placeholder="Search by name or phone"><button id="add" class="primary" type="button">Add patient</button></div>
+  <table><thead><tr><th>Patient</th><th>Born</th><th>Blood</th><th>Phone</th><th>Status</th><th></th></tr></thead><tbody id="tb"></tbody></table>
+  <section><h2>Conflicts resolved</h2><ul id="log"></ul></section>
+</main>
+<dialog id="dlg">
+  <form id="f" method="dialog">
+    <input type="hidden" name="pid">
+    <label>Full name<input name="name" required maxlength="100"></label>
+    <div class="two"><label>Date of birth<input name="dob" type="date"></label>
+    <label>Blood group<select name="blood"><option value="">Unknown</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>O+</option><option>O-</option><option>AB+</option><option>AB-</option></select></label></div>
+    <div class="two"><label>Phone<input name="phone" type="tel"></label>
+    <label>Status<select name="status"><option>Active</option><option>Admitted</option><option>Discharged</option></select></label></div>
+    <label>Notes<textarea name="notes" rows="3"></textarea></label>
+    <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="save">Save patient</button></div>
+  </form>
+</dialog>
+<script src="/app.js"></script>
+</body>
+</html>
